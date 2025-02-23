@@ -10,7 +10,20 @@ void PowerManager::updatePowerData(const JsonObject &newData) {
   for (JsonPair pair : newData) {
     powerDoc[pair.key()] = pair.value();
   }
+  notifyCharacteristic();
+}
 
+void PowerManager::setPowerStatus(const char *status) {
+  powerDoc["powerStatus"] = status;
+  notifyCharacteristic();
+}
+
+void PowerManager::setLastPoweredOn(const char *timestamp) {
+  powerDoc["lastPoweredOn"] = timestamp;
+  notifyCharacteristic();
+}
+
+void PowerManager::notifyCharacteristic() {
   char jsonBuffer[256];
   serializeJson(powerDoc, jsonBuffer);
   powerCharacteristic->setValue(jsonBuffer);

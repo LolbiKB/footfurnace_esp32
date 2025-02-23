@@ -10,7 +10,20 @@ void HeatingManager::updateHeatingData(const JsonObject &newData) {
   for (JsonPair pair : newData) {
     heatingDoc[pair.key()] = pair.value();
   }
+  notifyCharacteristic();
+}
 
+void HeatingManager::setTemperature(int temperature) {
+  heatingDoc["temperature"] = temperature;
+  notifyCharacteristic();
+}
+
+void HeatingManager::setHeatingStatus(const char *status) {
+  heatingDoc["heatingStatus"] = status;
+  notifyCharacteristic();
+}
+
+void HeatingManager::notifyCharacteristic() {
   char jsonBuffer[256];
   serializeJson(heatingDoc, jsonBuffer);
   heatingCharacteristic->setValue(jsonBuffer);

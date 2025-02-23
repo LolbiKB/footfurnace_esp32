@@ -10,7 +10,25 @@ void BatteryManager::updateBatteryData(const JsonObject &newData) {
   for (JsonPair pair : newData) {
     batteryDoc[pair.key()] = pair.value();
   }
+  notifyCharacteristic();
+}
 
+void BatteryManager::setBatteryLevel(int level) {
+  batteryDoc["batteryLevel"] = level;
+  notifyCharacteristic();
+}
+
+void BatteryManager::setChargingStatus(bool status) {
+  batteryDoc["chargingStatus"] = status;
+  notifyCharacteristic();
+}
+
+void BatteryManager::setBatteryHealth(int health) {
+  batteryDoc["batteryHealth"] = health;
+  notifyCharacteristic();
+}
+
+void BatteryManager::notifyCharacteristic() {
   char jsonBuffer[256];
   serializeJson(batteryDoc, jsonBuffer);
   batteryCharacteristic->setValue(jsonBuffer);
