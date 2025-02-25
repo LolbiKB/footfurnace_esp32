@@ -28,6 +28,10 @@ void BatteryManager::setBatteryHealth(int health) {
   notifyCharacteristic();
 }
 
+int BatteryManager::getBatteryLevel() const {
+    return batteryDoc["batteryLevel"] | 0;
+}
+
 void BatteryManager::notifyCharacteristic() {
   char jsonBuffer[256];
   serializeJson(batteryDoc, jsonBuffer);

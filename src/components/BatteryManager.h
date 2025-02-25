@@ -16,6 +16,7 @@ public:
   void setBatteryLevel(int level);
   void setChargingStatus(bool status);
   void setBatteryHealth(int health);
+  int getBatteryLevel() const;
 
 private:
   BLECharacteristic *batteryCharacteristic;

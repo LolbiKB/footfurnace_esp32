@@ -1,27 +1,35 @@
 #ifndef HEATING_MANAGER_H
 #define HEATING_MANAGER_H
 
-#include <Arduino.h>
 #include <BLEServer.h>
-#include <BLECharacteristic.h>
+#include <BLEService.h>
 #include <ArduinoJson.h>
 
 class HeatingManager {
-public:
-  HeatingManager(BLEService *service, BLEServer *server);
-
-  void updateHeatingData(const JsonObject &newData);
-
-  // Helper methods for specific updates
-  void setTemperature(int temperature);
-  void setHeatingStatus(const char *status);
-
 private:
-  BLECharacteristic *heatingCharacteristic;
-  BLEServer *pServer;
-  StaticJsonDocument<256> heatingDoc;
+    BLECharacteristic* heatingCharacteristic;
+    BLEServer* pServer;
+    StaticJsonDocument<256> heatingDoc;
+    double targetTemperature;  // Changed from int to double
+    void notifyCharacteristic();
 
-  void notifyCharacteristic(); // Encapsulates notification logic
+    class HeatingCallbacks : public BLECharacteristicCallbacks {
+    private:
+        HeatingManager* manager;
+    public:
+        HeatingCallbacks(HeatingManager* mgr) : manager(mgr) {}
+        void onWrite(BLECharacteristic* pCharacteristic) override;
+    };
+
+public:
+    HeatingManager(BLEService* service, BLEServer* server);
+    void updateHeatingData(const JsonObject& newData);
+    void setTemperature(double temperature);  // Changed from int to double
+    void setHeatingStatus(const char* status);
+    void setTargetTemperature(double temperature);  // Changed from int to double
+    double getTargetTemperature() const;  // Changed from int to double
+    String getHeatingStatus() const;
+    BLEServer* getServer() { return pServer; }
 };
 
-#endif // HEATING_MANAGER_H
+#endif
