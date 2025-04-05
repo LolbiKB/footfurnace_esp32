@@ -3,177 +3,235 @@
 #include "components/HeatingManager.h"
 #include "components/PowerManager.h"
 #include "utils/BLEUtils.h"
-#include "components/Thermistor.h"
+#include "components/Battery.h"
+#include "components/Temperature.h"
+class ServerCallbacks: public BLEServerCallbacks {
+    void onDisconnect(BLEServer* pServer) {
+        Serial.println("Client disconnected");
+        pServer->getAdvertising()->start();
+    }
+};
 
-// Declare global pointers to managers for use in loop()
+// Declare global pointers to managers and components
 BatteryManager *batteryManager;
 HeatingManager *heatingManager;
 PowerManager *powerManager;
+Battery *battery;
+Temperature *temperature;
 
-int presetBatteryLevel = 90;
-
-// Modify constants
-const double HEATING_RATE = 0.4;      // °C per second when heating
-const double COOLING_RATE = 0.05;     // °C per second when cooling
-const double BATTERY_DRAIN_RATE = 0.04; // % per second when heating
-const double AMBIENT_TEMP = 20.0;     // Room temperature in °C
-const double AMBIENT_INFLUENCE = 0.03; // Rate at which ambient temp affects current temp
+// Hardware configuration
 const double MAINTENANCE_THRESHOLD = 1.0; // ±1°C threshold for maintenance mode
 const unsigned long UPDATE_INTERVAL = 1000;
-const int HEATING_PIN = GPIO_NUM_18;  // Define heating control pin using GPIO9
+const int HEATING_PIN = GPIO_NUM_15;
 
-const int LED_BLE_PIN = GPIO_NUM_4;   // LED for BLE status (flashing when disconnected)
-const int LED_BATTERY_OK_PIN = GPIO_NUM_2;   // LED for battery > 30%
-const int LED_BATTERY_LOW_PIN = GPIO_NUM_15;  // LED for battery < 20%
-unsigned long previousLEDMillis = 0;  // For LED flashing
-const int LED_FLASH_INTERVAL = 500;   // Flash every 500ms
-bool ledState = false;  // For LED flashing state
+// ADC configuration
+const int THERMISTOR_PIN = GPIO_NUM_4;  // ADC pin for thermistor
+const int BATTERY_PIN = GPIO_NUM_32;    // ADC pin for battery voltage
 
-const unsigned long BLE_CONNECTED_LED_DURATION = 5000;  // 5 seconds in milliseconds
+// LED configuration
+const int LED_BLE_PIN = GPIO_NUM_26;
+const int LED_BATTERY_FULL_PIN = GPIO_NUM_27;
+const int LED_BATTERY_LOW_PIN = GPIO_NUM_12;
+const int LED_HEATING_PIN = GPIO_NUM_25;
+const int LED_PIN_GROUND = GPIO_NUM_13;
+unsigned long previousLEDMillis = 0;
+const int LED_FLASH_INTERVAL = 500;
+bool ledState = false;
+unsigned long previousHeatingLEDMillis = 0; // Add timer for heating LED flashing
+bool heatingLedState = false; // State for heating LED when flashing
+
+// BLE connection tracking
+const unsigned long BLE_CONNECTED_LED_DURATION = 5000;
 unsigned long bleConnectedTime = 0;
-bool wasDisconnected = true;  // Track connection state changes
+bool wasDisconnected = true;
 
-double currentTemperature = AMBIENT_TEMP;
 unsigned long previousMillis = 0;
+unsigned long statusDisplayMillis = 0;
+const unsigned long STATUS_DISPLAY_INTERVAL = 1000; // Update display every second
 
-void setup()
-{
+// Sensor parameters
+const float BATTERY_VOLTAGE_MAX = 8.4;
+const float BATTERY_VOLTAGE_MIN = 6.0;
+const float BATTERY_VOLTAGE_DIVIDER = 3.921;
+
+const float THERMISTOR_R_NOMINAL = 10000.0;
+const float THERMISTOR_B_COEFFICIENT = 3950.0;
+const float THERMISTOR_SERIES_RESISTOR = 50000.0;
+const float REFERENCE_TEMP = 25.0;
+
+void setup() {
   Serial.begin(115200);
+  
+  // ADC configuration
+  analogReadResolution(12); // Set ADC resolution to 12 bits (0-4095)
+  
+  // Initialize Battery and Temperature components with direct GPIO pins
+  battery = new Battery(BATTERY_PIN, BATTERY_VOLTAGE_DIVIDER,
+                      BATTERY_VOLTAGE_MAX, BATTERY_VOLTAGE_MIN);
+                      
+  temperature = new Temperature(THERMISTOR_PIN,
+                             THERMISTOR_R_NOMINAL, THERMISTOR_B_COEFFICIENT,
+                             THERMISTOR_SERIES_RESISTOR, REFERENCE_TEMP);
 
-  // Initialize BLE and service
+  // Get initial readings
+  float battVoltage = battery->readVoltage();
+  int battPercent = battery->calculatePercentage();
+  float temp = temperature->readTemperature();
+
+  // Initialize BLE
   BLEDevice::init("BootsESP32");
   BLEServer *pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new ServerCallbacks());
   BLEService *pService = pServer->createService("12345678-90AB-CDEF-1234-567890ABCDEF");
 
-  // Initialize managers
+  // Initialize managers with actual sensor values
   batteryManager = new BatteryManager(pService, pServer);
   heatingManager = new HeatingManager(pService, pServer);
   powerManager = new PowerManager(pService, pServer);
 
-  // Initial values for each component
-  batteryManager->setBatteryLevel(presetBatteryLevel);
+  batteryManager->setBatteryLevel(battPercent);
   batteryManager->setChargingStatus(false);
   batteryManager->setBatteryHealth(80);
 
-  heatingManager->setHeatingStatus("ON");
-  heatingManager->setTemperature(30);
+  heatingManager->setHeatingStatus("OFF");
+  heatingManager->setTemperature(temp);
 
   powerManager->setPowerStatus("ON");
   powerManager->setLastPoweredOn("2023-11-20T10:00:00Z");
 
-  // Start the service and advertising
+  // Start BLE advertising
   pService->start();
   BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
   pAdvertising->addServiceUUID("12345678-90AB-CDEF-1234-567890ABCDEF");
   BLEDevice::startAdvertising();
 
-  // Initialize heating control pin
+  // Initialize pins
   pinMode(HEATING_PIN, OUTPUT);
-  digitalWrite(HEATING_PIN, LOW);  // Start with heating off
-
-  // Initialize LED pins
   pinMode(LED_BLE_PIN, OUTPUT);
-  pinMode(LED_BATTERY_OK_PIN, OUTPUT);
   pinMode(LED_BATTERY_LOW_PIN, OUTPUT);
-  
-  // Start with all LEDs off
-  digitalWrite(LED_BLE_PIN, LOW);
-  digitalWrite(LED_BATTERY_OK_PIN, LOW);
-  digitalWrite(LED_BATTERY_LOW_PIN, LOW);
+  pinMode(LED_BATTERY_FULL_PIN, OUTPUT); // Initialize battery full LED
+  pinMode(LED_HEATING_PIN, OUTPUT); // Initialize heating LED
+  pinMode(LED_PIN_GROUND, OUTPUT);
 
-  Serial.println("BLE Server and Managers Initialized");
+  digitalWrite(HEATING_PIN, LOW);
+  digitalWrite(LED_BLE_PIN, LOW);
+  digitalWrite(LED_BATTERY_LOW_PIN, LOW);
+  digitalWrite(LED_BATTERY_FULL_PIN, LOW); // Initialize battery full LED to off
+  digitalWrite(LED_HEATING_PIN, LOW); // Initialize heating LED to off
+  digitalWrite(LED_PIN_GROUND, LOW);
+
+  Serial.println("System Initialized");
 }
 
-void loop()
-{
+void loop() {
   unsigned long currentMillis = millis();
-  double deltaTime = (currentMillis - previousMillis) / 1000.0;
-  
-  // Handle LED states with priority
-  if (!heatingManager->getServer()->getConnectedCount()) {
-    // Priority 1: No BLE connection - flash LED
-    digitalWrite(LED_BATTERY_OK_PIN, LOW);
-    digitalWrite(LED_BATTERY_LOW_PIN, LOW);
-    wasDisconnected = true;
-    
-    if (currentMillis - previousLEDMillis >= LED_FLASH_INTERVAL) {
-      previousLEDMillis = currentMillis;
-      ledState = !ledState;
-      digitalWrite(LED_BLE_PIN, ledState);
-    }
-  } else {
-    // Handle initial connection
-    if (wasDisconnected) {
-      bleConnectedTime = currentMillis;
-      wasDisconnected = false;
-    }
-    
-    // Keep BLE LED on for 5 seconds after connection
-    if (currentMillis - bleConnectedTime < BLE_CONNECTED_LED_DURATION) {
-      digitalWrite(LED_BLE_PIN, HIGH);
-    } else {
+
+  // Periodic sensor reading and control updates
+  if (currentMillis - previousMillis >= UPDATE_INTERVAL) {
+    previousMillis = currentMillis;
+
+      // LED handling - prioritize battery status
+    if (battery->isDead()) {
       digitalWrite(LED_BLE_PIN, LOW);
-      
-      // Handle battery status LEDs
-      int batteryLevel = batteryManager->getBatteryLevel();
-      if (batteryLevel < 30) {
-        digitalWrite(LED_BATTERY_OK_PIN, LOW);
-        digitalWrite(LED_BATTERY_LOW_PIN, HIGH);
-      } else {
-        digitalWrite(LED_BATTERY_OK_PIN, LOW);
-        digitalWrite(LED_BATTERY_LOW_PIN, LOW);
+      digitalWrite(LED_BATTERY_LOW_PIN, LOW);
+      digitalWrite(LED_BATTERY_FULL_PIN, LOW); // Turn off battery full LED when dead
+    } else if (!heatingManager->getServer()->getConnectedCount()) {
+      digitalWrite(LED_BATTERY_LOW_PIN, LOW);
+      wasDisconnected = true;
+
+      if (currentMillis - previousLEDMillis >= LED_FLASH_INTERVAL) {
+        previousLEDMillis = currentMillis;
+        ledState = !ledState;
+        digitalWrite(LED_BLE_PIN, ledState);
       }
+      digitalWrite(LED_BATTERY_FULL_PIN, LOW); // Keep full LED off during BLE advertising
+    } else {
+      // BLE connected
+      if (wasDisconnected) {
+        bleConnectedTime = currentMillis;
+        wasDisconnected = false;
+      }
+
+      if (currentMillis - bleConnectedTime < BLE_CONNECTED_LED_DURATION) {
+        digitalWrite(LED_BLE_PIN, HIGH);
+      } else {
+        digitalWrite(LED_BLE_PIN, LOW);
+
+        if (battery->isLow()) {
+          digitalWrite(LED_BATTERY_LOW_PIN, HIGH);
+          digitalWrite(LED_BATTERY_FULL_PIN, LOW); // Turn off full LED when battery is low
+        } else {
+          digitalWrite(LED_BATTERY_LOW_PIN, LOW);
+          
+          // Turn on battery full LED when battery is at 100%
+          // digitalWrite(LED_BATTERY_FULL_PIN, batteryPercent >= 100 ? HIGH : LOW);
+        }
+      }
+    }
+
+    // Read sensor values
+    float currentTemp = temperature->readTemperature();
+    int batteryPercent = battery->calculatePercentage();
+    float batteryVoltage = battery->readVoltage();
+
+    // Update BLE characteristics
+    batteryManager->setBatteryLevel(batteryPercent);
+    heatingManager->setTemperature(round(currentTemp * 100.0) / 100.0);
+
+    double targetTemp = heatingManager->getTargetTemperature();
+    double tempDiff = abs(currentTemp - targetTemp);
+
+    // Update heating status with LED control
+    if (batteryPercent <= 0) {
+      heatingManager->setHeatingStatus("OFF");
+      digitalWrite(HEATING_PIN, LOW);  // Ensure heating is off when battery is dead
+      digitalWrite(LED_HEATING_PIN, LOW); // Turn off heating LED when battery is dead
+    } else if (tempDiff <= MAINTENANCE_THRESHOLD) {
+      heatingManager->setHeatingStatus("MTN");
+      // Flash the heating LED in maintenance mode
+      if (currentMillis - previousHeatingLEDMillis >= LED_FLASH_INTERVAL) {
+        previousHeatingLEDMillis = currentMillis;
+        heatingLedState = !heatingLedState;
+      }
+    } else if (currentTemp < targetTemp) {
+      heatingManager->setHeatingStatus("ON");
+      digitalWrite(HEATING_PIN, HIGH);  // Turn heating on
+      digitalWrite(LED_HEATING_PIN, HIGH); // Turn heating LED on
+    } else {
+      heatingManager->setHeatingStatus("OFF");
+      digitalWrite(HEATING_PIN, LOW);  // Turn heating off
+      digitalWrite(LED_HEATING_PIN, LOW); // Turn heating LED off
+    }
+
+    digitalWrite(HEATING_PIN, HIGH);  // Alway turn on heating pin for testing
+
+    // Log system status using carriage returns to update in place
+    if (currentMillis - statusDisplayMillis >= STATUS_DISPLAY_INTERVAL) {
+      statusDisplayMillis = currentMillis;
+      
+      // Use carriage returns to update the same lines
+      Serial.print("\r\033[K"); // Carriage return and clear line
+      Serial.println("SYSTEM STATUS:");
+      Serial.print("\033[K"); // Clear line
+      Serial.println("Temperature: " + String(currentTemp, 1) + "°C / " + String((currentTemp * 9/5) + 32, 1) + "°F");
+      Serial.print("\033[K"); // Clear line
+      Serial.println("Target Temp: " + String(targetTemp, 1) + "°C / " + String((targetTemp * 9/5) + 32, 1) + "°F");
+      Serial.print("\033[K"); // Clear line
+      Serial.println("Raw Temp Voltage: " + String(temperature->readVoltage()));
+      Serial.print("\033[K"); // Clear line
+      Serial.println("Battery: " + String(batteryPercent) + "% (" + String(batteryVoltage, 2) + "V)");
+      Serial.print("\033[K"); // Clear line
+      Serial.println("Battery Raw Voltage: " + String(battery->readRawValue()));
+      Serial.print("\033[K"); // Clear line
+      Serial.println("Heating: " + heatingManager->getHeatingStatus());
+      Serial.print("\033[K"); // Clear line
+      Serial.println("BLE Connected: " + String(heatingManager->getServer()->getConnectedCount() > 0 ? "YES" : "NO"));
+      Serial.print("\033[K"); // Clear line
+      
+      // Move cursor back up 6 lines to overwrite the same area next time
+      Serial.print("\033[6A");
     }
   }
 
-  if (currentMillis - previousMillis >= UPDATE_INTERVAL) {
-    previousMillis = currentMillis;
-    
-    double targetTemp = heatingManager->getTargetTemperature();  // Changed to double
-    int batteryLevel = batteryManager->getBatteryLevel();
-    
-    // Calculate temperature difference
-    double tempDiff = abs(currentTemperature - targetTemp);
-    
-    // Update UI status 
-    if (batteryLevel <= 0) {
-      heatingManager->setHeatingStatus("OFF");  // Force OFF when battery dead
-    } else if (tempDiff <= MAINTENANCE_THRESHOLD) {
-      heatingManager->setHeatingStatus("MTN");
-    } else if (currentTemperature < targetTemp) {
-      heatingManager->setHeatingStatus("ON");
-    } else {
-      heatingManager->setHeatingStatus("OFF");
-    }
-    
-    // Heating logic
-    if (currentTemperature < targetTemp && batteryLevel > 0) {
-      // Active heating only when battery has power
-      currentTemperature += HEATING_RATE * deltaTime;
-      batteryLevel -= BATTERY_DRAIN_RATE * deltaTime;
-      batteryManager->setBatteryLevel(max(0, batteryLevel));
-      digitalWrite(HEATING_PIN, HIGH);  // Turn on heating
-    } else {
-      digitalWrite(HEATING_PIN, LOW);   // Turn off heating
-    }
-    
-    // Natural cooling always happens regardless of battery
-    double tempDiffAmbient = AMBIENT_TEMP - currentTemperature;
-    currentTemperature += tempDiffAmbient * AMBIENT_INFLUENCE * deltaTime;
-    
-    // Update temperature reading (round to 2 decimal places)
-    heatingManager->setTemperature(round(currentTemperature * 100.0) / 100.0);
-    
-    // Log system status
-    Serial.println("System Status:");
-    Serial.println("Ambient Temp: " + String(AMBIENT_TEMP, 2) + "°C");
-    Serial.println("Current Temp: " + String(currentTemperature, 2) + "°C");
-    Serial.println("Target Temp: " + String(targetTemp) + "°C");
-    Serial.println("Temp Diff: " + String(tempDiff, 2) + "°C");
-    Serial.println("Heating: " + heatingManager->getHeatingStatus());
-    Serial.println("Battery: " + String(batteryLevel) + "%");
-    Serial.println("------------------------");
-  }
-  
-  delay(10);  // Reduced delay for smoother simulation
+  delay(10);
 }
