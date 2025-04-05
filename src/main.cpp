@@ -205,31 +205,35 @@ void loop() {
 
     digitalWrite(HEATING_PIN, HIGH);  // Alway turn on heating pin for testing
 
-    // Log system status using carriage returns to update in place
+    // Log system status
     if (currentMillis - statusDisplayMillis >= STATUS_DISPLAY_INTERVAL) {
       statusDisplayMillis = currentMillis;
       
-      // Use carriage returns to update the same lines
-      Serial.print("\r\033[K"); // Carriage return and clear line
-      Serial.println("SYSTEM STATUS:");
-      Serial.print("\033[K"); // Clear line
-      Serial.println("Temperature: " + String(currentTemp, 1) + "°C / " + String((currentTemp * 9/5) + 32, 1) + "°F");
-      Serial.print("\033[K"); // Clear line
-      Serial.println("Target Temp: " + String(targetTemp, 1) + "°C / " + String((targetTemp * 9/5) + 32, 1) + "°F");
-      Serial.print("\033[K"); // Clear line
-      Serial.println("Raw Temp Voltage: " + String(temperature->readVoltage()));
-      Serial.print("\033[K"); // Clear line
-      Serial.println("Battery: " + String(batteryPercent) + "% (" + String(batteryVoltage, 2) + "V)");
-      Serial.print("\033[K"); // Clear line
-      Serial.println("Battery Raw Voltage: " + String(battery->readRawValue()));
-      Serial.print("\033[K"); // Clear line
-      Serial.println("Heating: " + heatingManager->getHeatingStatus());
-      Serial.print("\033[K"); // Clear line
-      Serial.println("BLE Connected: " + String(heatingManager->getServer()->getConnectedCount() > 0 ? "YES" : "NO"));
-      Serial.print("\033[K"); // Clear line
+      // Clear screen and reset cursor position
+      Serial.print("\033[2J\033[H");
       
-      // Move cursor back up 6 lines to overwrite the same area next time
-      Serial.print("\033[6A");
+      // System title
+      Serial.println("SYSTEM STATUS");
+      Serial.println("-------------");
+      
+      // Temperature section
+      Serial.println("\nTEMPERATURE");
+      Serial.println("Current: " + String(currentTemp, 1) + "°C / " + String((currentTemp * 9/5) + 32, 1) + "°F");
+      Serial.println("Target:  " + String(targetTemp, 1) + "°C / " + String((targetTemp * 9/5) + 32, 1) + "°F");
+      Serial.println("Raw ADC: " + String(temperature->readRawValue()));
+      
+      // Battery section
+      Serial.println("\nBATTERY");
+      Serial.println("Level:   " + String(batteryPercent) + "% (" + String(batteryVoltage, 2) + "V)");
+      Serial.println("Raw ADC: " + String(battery->readRawValue()));
+      
+      // System status section
+      Serial.println("\nSYSTEM");
+      Serial.println("Heating: " + heatingManager->getHeatingStatus());
+      Serial.println("BLE:     " + String(heatingManager->getServer()->getConnectedCount() > 0 ? "Connected" : "Disconnected"));
+      
+      // Uptime
+      Serial.println("\nUptime: " + String(millis() / 1000) + " seconds");
     }
   }
 
