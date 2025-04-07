@@ -1,7 +1,7 @@
 #include "HeatingManager.h"
 
 HeatingManager::HeatingManager(BLEService* service, BLEServer* server) 
-  : pServer(server), targetTemperature(25) {
+  : pServer(server), targetTemperature(15) {
   
   heatingCharacteristic = service->createCharacteristic(
     "4664c97b-ecc4-40c3-81a2-4789f8ed5e1c",
@@ -12,7 +12,7 @@ HeatingManager::HeatingManager(BLEService* service, BLEServer* server)
   
   heatingCharacteristic->setCallbacks(new HeatingCallbacks(this));
   heatingDoc["targetTemperature"] = targetTemperature;
-  heatingDoc["temperature"] = 25;
+  heatingDoc["temperature"] = 7;
   heatingDoc["heatingStatus"] = "OFF";
 }
 

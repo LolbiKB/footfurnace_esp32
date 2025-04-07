@@ -23,7 +23,8 @@ float Battery::readVoltage() {
   int raw = readRawValue();
   
   // Convert raw ADC value to voltage and apply divider ratio
-  float currentVoltage = (raw / 4095.0 * 1.0263) * 3.3 * dividerRatio + .53;
+  // float currentVoltage = (raw / 4095.0 * 1.0263) * 3.3 * dividerRatio + .53;
+  float currentVoltage = (raw / 4095.0) * 3.3 * dividerRatio + .55;
   
   // Update buffer with new reading
   voltageBuffer[bufferIndex] = currentVoltage;

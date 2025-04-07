@@ -2,12 +2,18 @@
 #include <Arduino.h>
 #include <math.h>
 
-Temperature::Temperature(int adcPin, float nominal, float beta, float series, float refTemp) {
+Temperature::Temperature(int adcPin, float nominal, float beta, float series, float refTemp, 
+                       BatteryVoltageCallback voltageCallback) {
   this->adcPin = adcPin;
   rNominal = nominal;
   bCoefficient = beta;
   seriesResistor = series;
   referenceTemp = refTemp;
+  getBatteryVoltage = voltageCallback;
+}
+
+void Temperature::setBatteryVoltageCallback(BatteryVoltageCallback callback) {
+  getBatteryVoltage = callback;
 }
 
 int Temperature::readRawValue() {
@@ -16,15 +22,20 @@ int Temperature::readRawValue() {
 
 float Temperature::readVoltage() {
   int raw = readRawValue();
-  // Convert raw ADC value to voltage
-  return (raw / 4095.0) * 3.3 + 0.115; // Assuming 12-bit ADC and 3.3V reference
+  
+  float voltage = (raw / 1023.0) * 3.3;
+  return voltage;
+}
+
+float Temperature::readResistance() {
+  float voltage = readVoltage();
+
+  float batteryVoltage = getBatteryVoltage();
+  float resistance = (voltage * seriesResistor) / (batteryVoltage - voltage);
 }
 
 float Temperature::readTemperature() {
-  float voltage = readVoltage();
-  
-  // Calculate resistance of thermistor
-  float resistance = seriesResistor / (3.3 / voltage - 1.0);
+  float resistance = readResistance();
   
   // Use Steinhart-Hart equation to calculate temperature
   float steinhart = resistance / rNominal;  // (R/Ro)
