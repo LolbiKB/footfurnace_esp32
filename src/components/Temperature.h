@@ -12,13 +12,8 @@ private:
   float seriesResistor;
   float referenceTemp;
   
-  // Pointer to battery voltage callback function
-  BatteryVoltageCallback getBatteryVoltage;
-  
 public:
-  Temperature(int adcPin, float nominal, float beta, float series, float refTemp, 
-             BatteryVoltageCallback voltageCallback = nullptr);
-  void setBatteryVoltageCallback(BatteryVoltageCallback callback);
+  Temperature(int adcPin, float nominal, float beta, float series, float refTemp);
   int readRawValue();
   float readVoltage();
   float readResistance();

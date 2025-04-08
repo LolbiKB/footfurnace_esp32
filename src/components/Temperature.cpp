@@ -2,18 +2,12 @@
 #include <Arduino.h>
 #include <math.h>
 
-Temperature::Temperature(int adcPin, float nominal, float beta, float series, float refTemp, 
-                       BatteryVoltageCallback voltageCallback) {
+Temperature::Temperature(int adcPin, float nominal, float beta, float series, float refTemp) {
   this->adcPin = adcPin;
   rNominal = nominal;
   bCoefficient = beta;
   seriesResistor = series;
   referenceTemp = refTemp;
-  getBatteryVoltage = voltageCallback;
-}
-
-void Temperature::setBatteryVoltageCallback(BatteryVoltageCallback callback) {
-  getBatteryVoltage = callback;
 }
 
 int Temperature::readRawValue() {
@@ -30,13 +24,13 @@ float Temperature::readVoltage() {
 float Temperature::readResistance() {
   float voltage = readVoltage();
 
-  float batteryVoltage = getBatteryVoltage();
-  float resistance = (voltage * seriesResistor) / (batteryVoltage - voltage);
+  float resistance = (voltage * seriesResistor) / (3.3 - voltage);
+  return resistance;
 }
 
 float Temperature::readTemperature() {
   float resistance = readResistance();
-  
+
   // Use Steinhart-Hart equation to calculate temperature
   float steinhart = resistance / rNominal;  // (R/Ro)
   steinhart = log(steinhart);              // ln(R/Ro)

@@ -77,8 +77,7 @@ void setup() {
   // Then create temperature component with the callback
   temperature = new Temperature(THERMISTOR_PIN,
                              THERMISTOR_R_NOMINAL, THERMISTOR_B_COEFFICIENT,
-                             THERMISTOR_SERIES_RESISTOR, REFERENCE_TEMP,
-                             getBatteryVoltage);
+                             THERMISTOR_SERIES_RESISTOR, REFERENCE_TEMP);
 
   // Get initial readings
   float battVoltage = battery->readVoltage();
